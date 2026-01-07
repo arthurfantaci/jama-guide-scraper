@@ -1,0 +1,28 @@
+{
+  "recommendations": [
+    // Core Python development
+    "ms-python.python",
+    "ms-python.pylance",
+    "ms-python.debugpy",
+
+    // Linting & Formatting (Ruff replaces black, isort, flake8, pylint)
+    "charliermarsh.ruff",
+
+    // Configuration file support
+    "mikestead.dotenv",
+    "tamasfe.even-better-toml",
+
+    // Productivity
+    "eamodio.gitlens",
+    "usernamehw.errorlens",
+    "oderwat.indent-rainbow",
+    "njpwerner.autodocstring"
+  ],
+  "unwantedRecommendations": [
+    // Deprecated: Ruff replaces these
+    "ms-python.black-formatter",
+    "ms-python.isort",
+    "ms-python.flake8",
+    "ms-python.pylint"
+  ]
+}

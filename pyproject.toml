@@ -1,0 +1,222 @@
+[project]
+name = "jama-guide-scraper"
+version = "0.1.0"
+description = "Scraper to consolidate Jama Software's Requirements Management Guide into LLM-friendly formats"
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "MIT" }
+authors = [{ name = "Arthur", email = "arthur@example.com" }]
+keywords = ["scraper", "requirements-management", "jama", "llm", "rag"]
+
+dependencies = [
+    "httpx>=0.27.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.0.0",
+    "pydantic>=2.5.0",
+    "rich>=13.7.0",
+    "tenacity>=8.2.0",
+]
+
+[project.scripts]
+jama-scrape = "jama_scraper.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/jama_scraper"]
+
+# PEP 735 dependency groups (preferred over [project.optional-dependencies])
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.14.0",
+    "ty>=0.0.8",
+]
+
+# =============================================================================
+# RUFF CONFIGURATION
+# =============================================================================
+# Ruff is an extremely fast Python linter and formatter, written in Rust.
+# Docs: https://docs.astral.sh/ruff/
+
+[tool.ruff]
+# Target Python version (matches requires-python)
+target-version = "py313"
+
+# Line length - 88 is Black's default and widely adopted
+line-length = 88
+
+# Source directory
+src = ["src"]
+
+# Exclude directories from linting
+exclude = [
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".git",
+    ".pytest_cache",
+    ".ruff_cache",
+]
+
+[tool.ruff.lint]
+# Enable a comprehensive set of rules for strict linting
+select = [
+    # Core Python
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes (undefined names, unused imports, etc.)
+
+    # Code quality
+    "B",      # flake8-bugbear (common bugs and design problems)
+    "C4",     # flake8-comprehensions (better list/dict/set comprehensions)
+    "UP",     # pyupgrade (modern Python syntax)
+    "SIM",    # flake8-simplify (simplify code)
+    "RUF",    # ruff-specific rules
+
+    # Imports
+    "I",      # isort (import sorting)
+
+    # Documentation
+    "D",      # pydocstyle (docstring conventions)
+
+    # Security
+    "S",      # flake8-bandit (security issues)
+
+    # Type annotations
+    "ANN",    # flake8-annotations (type hint coverage)
+    "TCH",    # flake8-type-checking (TYPE_CHECKING block optimization)
+
+    # Naming
+    "N",      # pep8-naming (naming conventions)
+
+    # Error handling
+    "TRY",    # tryceratops (exception handling anti-patterns)
+    "EM",     # flake8-errmsg (exception message formatting)
+
+    # Code structure
+    "PIE",    # flake8-pie (misc. lints)
+    "PT",     # flake8-pytest-style (pytest best practices)
+    "RET",    # flake8-return (return statement issues)
+    "ARG",    # flake8-unused-arguments
+    "PL",     # pylint (subset of pylint rules)
+]
+
+# Rules to ignore (with explanations)
+ignore = [
+    # Allow TODO comments without issue links (practical for learning projects)
+    "TD002",   # Missing author in TODO
+    "TD003",   # Missing issue link in TODO
+
+    # Sometimes we need broad exception handling
+    "TRY003",  # Avoid specifying long messages outside exception class
+    "EM101",   # Exception must not use string literal
+
+    # These conflict with formatter or are too strict
+    "D203",    # one-blank-line-before-class (conflicts with D211)
+    "D213",    # multi-line-summary-second-line (conflicts with D212)
+
+    # Allow assert in tests
+    "S101",    # Use of assert detected
+]
+
+# Per-file rule ignores
+[tool.ruff.lint.per-file-ignores]
+# Test files don't need docstrings or full type annotations
+"**/test_*.py" = ["D100", "D103", "D104", "ANN"]
+"conftest.py" = ["D100", "D103", "ANN"]
+
+# Entry points can be simpler
+"run.py" = ["D103", "ANN"]
+
+# Parser has complex but readable tag conversion logic
+"**/parser.py" = ["PLR0911", "PLR0912"]
+
+# Scraper's try/return pattern is more readable than try/else
+"**/scraper.py" = ["TRY300"]
+
+# Config contains long article titles/URLs that shouldn't be wrapped
+"**/config.py" = ["E501"]
+
+[tool.ruff.lint.pydocstyle]
+# Use Google-style docstrings
+# Example:
+#   def function(arg1: str, arg2: int) -> bool:
+#       """Summary line.
+#
+#       Longer description if needed.
+#
+#       Args:
+#           arg1: Description of arg1.
+#           arg2: Description of arg2.
+#
+#       Returns:
+#           Description of return value.
+#
+#       Raises:
+#           ValueError: If something is wrong.
+#       """
+convention = "google"
+
+[tool.ruff.lint.isort]
+# Group imports: stdlib, third-party, first-party, local
+known-first-party = ["jama_scraper"]
+
+# Sort by import name, not alias
+force-sort-within-sections = true
+
+[tool.ruff.format]
+# Use double quotes for strings (Black default)
+quote-style = "double"
+
+# Use spaces for indentation
+indent-style = "space"
+
+# Respect magic trailing commas (affects formatting of multi-line structures)
+skip-magic-trailing-comma = false
+
+# Auto-detect line endings
+line-ending = "auto"
+
+# Format docstrings
+docstring-code-format = true
+
+# =============================================================================
+# TY CONFIGURATION
+# =============================================================================
+# ty is a fast Python type checker from the Astral team (makers of ruff/uv).
+# Note: ty is very new (v0.0.x) - configuration options are evolving.
+# Docs: https://github.com/astral-sh/ty
+
+[tool.ty.environment]
+python-version = "3.13"
+
+[tool.ty.rules]
+# Rule severity configuration
+# ty rules use kebab-case names like "invalid-argument-type"
+# Severity levels: "error" (default for most), "warn", or "ignore"
+#
+# Common rules (all enabled by default):
+#   - invalid-argument-type: Wrong type passed to function
+#   - unresolved-import: Cannot find imported module
+#   - unresolved-attribute: Attribute doesn't exist on type
+#   - invalid-assignment: Assigning wrong type to variable
+#   - invalid-return-type: Return value doesn't match annotation
+#
+# Downgrade BeautifulSoup-related false positives to warnings
+# (BeautifulSoup's loose typing causes many false positives)
+invalid-argument-type = "warn"
+no-matching-overload = "warn"
+possibly-missing-attribute = "warn"
+
+# =============================================================================
+# PYTEST CONFIGURATION
+# =============================================================================
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
