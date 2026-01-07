@@ -36,9 +36,10 @@ TAGS_TO_REMOVE = frozenset([
 ])
 
 # CSS class patterns indicating promotional/CTA content (not guide content)
+# Note: avia-button-no means "no button" - we only want actual button elements
 PROMO_CLASS_PATTERNS = [
-    "avia-buttonrow",  # CTA button rows
-    "avia-button",  # Individual CTA buttons
+    r"avia-buttonrow",  # CTA button rows
+    r"avia-button(?!-no)",  # CTA buttons, but NOT avia-button-no
 ]
 
 # Link href patterns indicating promotional content
@@ -306,16 +307,25 @@ class HTMLParser:
         Returns:
             True if the section appears to contain CTA content.
         """
-        # Check for CTA button classes
-        if section.find(class_=re.compile(r"avia-button", re.IGNORECASE)):
+        # Preserve sections with valuable cross-reference content
+        text = section.get_text(strip=True)
+        if "RELATED ARTICLE" in text.upper():
+            return False  # Keep this section - it has cross-references
+
+        # Check for CTA button classes (not avia-button-no which means "no button")
+        if section.find(class_=re.compile(r"avia-button(?!-no)", re.IGNORECASE)):
             return True
 
-        # Check for CTA link patterns
-        if section.find("a", href=PROMO_LINK_PATTERNS):
-            return True
+        # Check for CTA link patterns (but not blog links which are informational)
+        for link in section.find_all("a", href=True):
+            href = link.get("href", "")
+            # Skip blog links - they're informational, not CTAs
+            if "/blog/" in href:
+                continue
+            if PROMO_LINK_PATTERNS.search(href):
+                return True
 
         # Check text content for CTA patterns
-        text = section.get_text(strip=True)
         if PROMO_TEXT_PATTERNS.search(text):
             return True
 
