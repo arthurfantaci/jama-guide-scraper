@@ -6,7 +6,7 @@ Converts HTML to clean Markdown and extracts metadata for RAG/knowledge graph us
 import re
 from urllib.parse import urljoin, urlparse
 
-from bs4 import BeautifulSoup, NavigableString, Tag
+from bs4 import BeautifulSoup, Comment, NavigableString, Tag
 
 from .config import BASE_URL
 from .models import CrossReference, ImageReference, Section
@@ -16,6 +16,24 @@ MIN_CONCEPT_LENGTH = 2
 MAX_CONCEPT_LENGTH = 50
 MAX_KEY_CONCEPTS = 20
 MIN_CONTENT_ELEMENTS = 2
+
+# Tags to remove during HTML cleaning (contain no meaningful content)
+TAGS_TO_REMOVE = frozenset([
+    "style",
+    "script",
+    "noscript",
+    "svg",
+    "iframe",
+    "object",
+    "embed",
+    "canvas",
+    "map",
+    "audio",
+    "video",
+    "source",
+    "track",
+    "template",
+])
 
 
 class HTMLParser:
@@ -52,6 +70,9 @@ class HTMLParser:
                 "key_concepts": [],
                 "images": [],
             }
+
+        # Clean HTML: remove style, script, and other non-content elements
+        self._clean_html(content_elem)
 
         # Extract cross-references before converting to markdown
         cross_refs = self._extract_cross_references(content_elem, source_url)
@@ -92,6 +113,9 @@ class HTMLParser:
 
         if not content_elem:
             return []
+
+        # Clean HTML before processing
+        self._clean_html(content_elem)
 
         terms = []
 
@@ -234,6 +258,29 @@ class HTMLParser:
         # Fall back to body
         return soup.find("body")
 
+    def _clean_html(self, elem: Tag) -> None:
+        """Remove non-content elements from HTML in place.
+
+        Removes style tags, scripts, and other elements that don't contain
+        meaningful article content. This prevents CSS/JS from leaking into
+        the markdown output.
+
+        Args:
+            elem: BeautifulSoup Tag to clean (modified in place).
+        """
+        # Remove non-content tags entirely
+        for tag in elem.find_all(TAGS_TO_REMOVE):
+            tag.decompose()
+
+        # Remove HTML comments
+        for comment in elem.find_all(string=lambda text: isinstance(text, Comment)):
+            comment.extract()
+
+        # Remove elements with hidden display (often used for CSS-in-JS)
+        hidden_pattern = re.compile(r"display:\s*none", re.IGNORECASE)
+        for hidden in elem.find_all(style=hidden_pattern):
+            hidden.decompose()
+
     def _extract_cross_references(
         self, elem: Tag, source_url: str
     ) -> list[CrossReference]:
@@ -365,13 +412,13 @@ class HTMLParser:
         """Convert a single tag to markdown."""
         name = tag.name
 
+        # Skip non-content tags (safety net if _clean_html missed any)
+        if name in TAGS_TO_REMOVE:
+            return ""
+
         # Handle images
         if name == "img" and include_images:
             return self._img_to_markdown(tag)
-
-        # Handle noscript (skip - we handle images from the main img tags)
-        if name == "noscript":
-            return ""
 
         # Headings
         if name in ["h1", "h2", "h3", "h4", "h5", "h6"]:
@@ -460,8 +507,14 @@ class HTMLParser:
 
         for child in tag.children:
             if isinstance(child, NavigableString):
+                # Skip comments
+                if isinstance(child, Comment):
+                    continue
                 parts.append(str(child))
             elif isinstance(child, Tag):
+                # Skip non-content tags
+                if child.name in TAGS_TO_REMOVE:
+                    continue
                 if child.name in {"strong", "b"}:
                     parts.append(f"**{child.get_text()}**")
                 elif child.name in {"em", "i"}:
@@ -476,8 +529,6 @@ class HTMLParser:
                     parts.append("\n")
                 elif child.name == "img":
                     parts.append(self._img_to_markdown(child))
-                elif child.name == "noscript":
-                    pass  # Skip noscript tags
                 else:
                     parts.append(child.get_text())
 
