@@ -9,7 +9,7 @@ from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup, Comment, NavigableString, Tag
 
 from .config import BASE_URL
-from .models import CrossReference, ImageReference, Section
+from .models import CrossReference, ImageReference, Section, VideoReference
 
 # Constants for content extraction
 MIN_CONCEPT_LENGTH = 2
@@ -18,22 +18,31 @@ MAX_KEY_CONCEPTS = 20
 MIN_CONTENT_ELEMENTS = 2
 
 # Tags to remove during HTML cleaning (contain no meaningful content)
-TAGS_TO_REMOVE = frozenset([
-    "style",
-    "script",
-    "noscript",
-    "svg",
-    "iframe",
-    "object",
-    "embed",
-    "canvas",
-    "map",
-    "audio",
-    "video",
-    "source",
-    "track",
-    "template",
-])
+# Note: iframe is NOT included - YouTube embeds are valuable content
+TAGS_TO_REMOVE = frozenset(
+    [
+        "style",
+        "script",
+        "noscript",
+        "svg",
+        "object",
+        "embed",
+        "canvas",
+        "map",
+        "audio",
+        "video",
+        "source",
+        "track",
+        "template",
+    ]
+)
+
+# Patterns for extracting video information
+YOUTUBE_PATTERNS = [
+    re.compile(r"youtube\.com/embed/([a-zA-Z0-9_-]+)"),
+    re.compile(r"youtube\.com/watch\?v=([a-zA-Z0-9_-]+)"),
+    re.compile(r"youtu\.be/([a-zA-Z0-9_-]+)"),
+]
 
 # CSS class patterns indicating promotional/CTA content (not guide content)
 # Note: avia-button-no means "no button" - we only want actual button elements
@@ -90,6 +99,7 @@ class HTMLParser:
                 "cross_references": [],
                 "key_concepts": [],
                 "images": [],
+                "videos": [],
             }
 
         # Clean HTML: remove style, script, and other non-content elements
@@ -98,10 +108,11 @@ class HTMLParser:
         # Extract cross-references before converting to markdown
         cross_refs = self._extract_cross_references(content_elem, source_url)
 
-        # Extract images
+        # Extract images and videos
         images = self._extract_images(content_elem, source_url)
+        videos = self._extract_videos(content_elem, source_url)
 
-        # Convert to markdown (now includes image references)
+        # Convert to markdown (includes images and videos)
         markdown = self._html_to_markdown(content_elem, include_images=True)
 
         # Remove promotional text blocks from markdown
@@ -120,6 +131,7 @@ class HTMLParser:
             "cross_references": cross_refs,
             "key_concepts": key_concepts,
             "images": images,
+            "videos": videos,
         }
 
     def parse_glossary(self, html: str, _source_url: str) -> list[dict]:
@@ -318,7 +330,7 @@ class HTMLParser:
 
         # Check for CTA link patterns (but not blog links which are informational)
         for link in section.find_all("a", href=True):
-            href = link.get("href", "")
+            href = str(link.get("href", ""))
             # Skip blog links - they're informational, not CTAs
             if "/blog/" in href:
                 continue
@@ -546,6 +558,63 @@ class HTMLParser:
 
         return images
 
+    def _extract_videos(self, elem: Tag, _source_url: str) -> list[VideoReference]:
+        """Extract all videos from iframes as VideoReference objects.
+
+        Args:
+            elem: BeautifulSoup Tag containing the content.
+            _source_url: Source URL (unused, kept for API consistency).
+
+        Returns:
+            List of VideoReference objects for embedded videos.
+        """
+        videos = []
+        seen_ids = set()
+
+        for iframe in elem.find_all("iframe"):
+            src = iframe.get("src", "") or iframe.get("data-src", "")
+            if not src:
+                continue
+
+            # Extract YouTube video ID
+            video_id = None
+            for pattern in YOUTUBE_PATTERNS:
+                match = pattern.search(src)
+                if match:
+                    video_id = match.group(1)
+                    break
+
+            if not video_id or video_id in seen_ids:
+                continue
+
+            seen_ids.add(video_id)
+
+            # Build URLs
+            embed_url = f"https://www.youtube.com/embed/{video_id}"
+            watch_url = f"https://www.youtube.com/watch?v={video_id}"
+
+            # Get title from iframe if available
+            title = iframe.get("title") or None
+
+            # Get surrounding context
+            context = None
+            prev_heading = iframe.find_previous(["h2", "h3", "h4"])
+            if prev_heading:
+                context = prev_heading.get_text(strip=True)
+
+            videos.append(
+                VideoReference(
+                    url=watch_url,
+                    embed_url=embed_url,
+                    video_id=video_id,
+                    platform="youtube",
+                    title=title,
+                    context=context,
+                )
+            )
+
+        return videos
+
     def _html_to_markdown(self, elem: Tag, include_images: bool = False) -> str:
         """Convert HTML element to markdown."""
         lines = []
@@ -574,6 +643,10 @@ class HTMLParser:
         # Handle images
         if name == "img" and include_images:
             return self._img_to_markdown(tag)
+
+        # Handle iframes (YouTube embeds)
+        if name == "iframe":
+            return self._iframe_to_markdown(tag)
 
         # Headings
         if name in ["h1", "h2", "h3", "h4", "h5", "h6"]:
@@ -655,6 +728,41 @@ class HTMLParser:
 
         # Return markdown image with description
         return f"![{description}]({src})"
+
+    def _iframe_to_markdown(self, iframe: Tag) -> str:
+        """Convert an iframe to markdown, handling YouTube embeds.
+
+        Args:
+            iframe: BeautifulSoup iframe Tag.
+
+        Returns:
+            Markdown representation of the video, or empty string if not supported.
+        """
+        src = iframe.get("src", "") or iframe.get("data-src", "")
+        if not src:
+            return ""
+
+        # Extract YouTube video ID
+        video_id = None
+        for pattern in YOUTUBE_PATTERNS:
+            match = pattern.search(src)
+            if match:
+                video_id = match.group(1)
+                break
+
+        if not video_id:
+            return ""  # Non-YouTube iframes are not rendered
+
+        # Build watch URL
+        watch_url = f"https://www.youtube.com/watch?v={video_id}"
+
+        # Get title from iframe or use default
+        title = iframe.get("title", "").strip()
+        if not title or title.lower() == "youtube video player":
+            title = "YouTube Video"
+
+        # Return as a markdown link with video indicator
+        return f"🎬 [{title}]({watch_url})"
 
     def _inline_to_markdown(self, tag: Tag) -> str:
         """Convert inline content to markdown, preserving nested links."""

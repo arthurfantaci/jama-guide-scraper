@@ -60,6 +60,21 @@ class ImageReference(BaseModel):
     )
 
 
+class VideoReference(BaseModel):
+    """A reference to a video/webinar embedded in the article."""
+
+    url: str = Field(description="Video URL (e.g., YouTube watch URL)")
+    embed_url: str = Field(description="Embed URL for the video")
+    video_id: str = Field(description="Video ID (e.g., YouTube video ID)")
+    platform: str = Field(
+        default="youtube", description="Video platform (youtube, vimeo, etc.)"
+    )
+    title: str | None = Field(default=None, description="Video title if available")
+    context: str | None = Field(
+        default=None, description="Surrounding text context for the video"
+    )
+
+
 class Article(BaseModel):
     """An individual article/page within a chapter."""
 
@@ -97,6 +112,10 @@ class Article(BaseModel):
     images: list[ImageReference] = Field(
         default_factory=list,
         description="Images and graphics referenced in this article",
+    )
+    videos: list[VideoReference] = Field(
+        default_factory=list,
+        description="Videos and webinars embedded in this article",
     )
 
     # Timestamps
