@@ -35,6 +35,26 @@ TAGS_TO_REMOVE = frozenset([
     "template",
 ])
 
+# CSS class patterns indicating promotional/CTA content (not guide content)
+PROMO_CLASS_PATTERNS = [
+    "avia-buttonrow",  # CTA button rows
+    "avia-button",  # Individual CTA buttons
+]
+
+# Link href patterns indicating promotional content
+PROMO_LINK_PATTERNS = re.compile(
+    r"(/trial/|/demo/|/pricing/|/contact/|/request/|#form)",
+    re.IGNORECASE,
+)
+
+# Text patterns indicating promotional content (case-insensitive)
+PROMO_TEXT_PATTERNS = re.compile(
+    r"(free\s+\d+-day\s+trial|book\s+a\s+demo|request\s+a\s+demo|"
+    r"ready\s+to\s+find\s+out\s+more|get\s+started\s+today|"
+    r"schedule\s+a\s+demo|contact\s+us\s+today|learn\s+more\s+about\s+jama)",
+    re.IGNORECASE,
+)
+
 
 class HTMLParser:
     """Parser for Jama guide HTML content."""
@@ -82,6 +102,9 @@ class HTMLParser:
 
         # Convert to markdown (now includes image references)
         markdown = self._html_to_markdown(content_elem, include_images=True)
+
+        # Remove promotional text blocks from markdown
+        markdown = self._remove_promo_text(markdown)
 
         # Parse into sections
         sections = self._parse_sections(content_elem, source_url)
@@ -261,9 +284,9 @@ class HTMLParser:
     def _clean_html(self, elem: Tag) -> None:
         """Remove non-content elements from HTML in place.
 
-        Removes style tags, scripts, and other elements that don't contain
-        meaningful article content. This prevents CSS/JS from leaking into
-        the markdown output.
+        Removes style tags, scripts, promotional content, and other elements
+        that don't contain meaningful article content. This prevents CSS/JS
+        and marketing CTAs from leaking into the markdown output.
 
         Args:
             elem: BeautifulSoup Tag to clean (modified in place).
@@ -280,6 +303,79 @@ class HTMLParser:
         hidden_pattern = re.compile(r"display:\s*none", re.IGNORECASE)
         for hidden in elem.find_all(style=hidden_pattern):
             hidden.decompose()
+
+        # Remove promotional/CTA elements by class patterns
+        self._remove_promotional_content(elem)
+
+    def _remove_promotional_content(self, elem: Tag) -> None:
+        """Remove promotional and CTA content from HTML.
+
+        Identifies and removes marketing blocks like trial buttons, demo CTAs,
+        and "Ready to find out more?" sections that aren't part of the guide.
+
+        Args:
+            elem: BeautifulSoup Tag to clean (modified in place).
+        """
+        # Remove elements with promotional CSS classes (CTA buttons)
+        for pattern in PROMO_CLASS_PATTERNS:
+            for tag in elem.find_all(class_=re.compile(pattern, re.IGNORECASE)):
+                tag.decompose()
+
+        # Remove specific promotional link buttons (not regular article links)
+        for link in elem.find_all("a", href=PROMO_LINK_PATTERNS):
+            # Only remove if it's a CTA button (has button-like classes)
+            link_classes = link.get("class", [])
+            class_str = " ".join(link_classes) if link_classes else ""
+            if "button" in class_str.lower() or "cta" in class_str.lower():
+                link.decompose()
+
+    def _remove_promo_text(self, markdown: str) -> str:
+        """Remove promotional text blocks from markdown content.
+
+        Removes specific CTA sections like "Ready to Find Out More?" and
+        promotional paragraphs that aren't part of the guide content.
+
+        Args:
+            markdown: Markdown content to clean.
+
+        Returns:
+            Cleaned markdown with promotional text removed.
+        """
+        lines = markdown.split("\n")
+        cleaned_lines = []
+        skip_until_next_section = False
+
+        for line in lines:
+            # Check if this line starts a promotional section
+            if re.match(r"^#{1,4}\s*Ready to Find Out More", line, re.IGNORECASE):
+                skip_until_next_section = True
+                continue
+
+            if re.match(r"^#{1,4}\s*Book a Demo", line, re.IGNORECASE):
+                skip_until_next_section = True
+                continue
+
+            # Stop skipping when we hit a new non-promo heading
+            is_heading = re.match(r"^#{1,4}\s+", line)
+            is_promo_heading = re.search(
+                r"(demo|trial|contact|pricing)", line, re.IGNORECASE
+            )
+            if skip_until_next_section and is_heading and not is_promo_heading:
+                skip_until_next_section = False
+
+            if skip_until_next_section:
+                continue
+
+            # Skip individual promotional lines
+            if PROMO_TEXT_PATTERNS.search(line):
+                continue
+
+            cleaned_lines.append(line)
+
+        # Clean up multiple blank lines
+        result = "\n".join(cleaned_lines)
+        result = re.sub(r"\n{3,}", "\n\n", result)
+        return result.strip()
 
     def _extract_cross_references(
         self, elem: Tag, source_url: str
