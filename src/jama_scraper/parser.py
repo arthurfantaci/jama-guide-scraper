@@ -255,9 +255,25 @@ class HTMLParser:
         return "Untitled"
 
     def _find_content_element(self, soup: BeautifulSoup) -> Tag | None:
-        """Find the main content container."""
+        """Find the main content container.
+
+        Targets the flex_cell_inner div which contains article content,
+        excluding the final section (typically promotional CTA content).
+        """
         # Jama's site uses Enfold/Avia theme with flex_cell layout
-        # The second flex_cell contains the main article content (first is navigation)
+        # The second flex_cell_inner contains the main article content
+        flex_cell_inners = soup.select(".flex_cell_inner")
+        if len(flex_cell_inners) >= MIN_CONTENT_ELEMENTS:
+            content_elem = flex_cell_inners[1]
+
+            # Remove the final section (typically contains CTA/promotional content)
+            sections = content_elem.find_all("section", recursive=False)
+            if sections:
+                sections[-1].decompose()
+
+            return content_elem
+
+        # Fallback: try original flex_cell approach
         flex_cells = soup.select(".flex_cell")
         if len(flex_cells) >= MIN_CONTENT_ELEMENTS:
             return flex_cells[1]
